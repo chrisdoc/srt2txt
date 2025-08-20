@@ -39,3 +39,49 @@ Flags:
 
 ## License
 MIT
+
+## Development
+### Git Hooks
+Git hooks are managed automatically by [cargo-husky](https://crates.io/crates/cargo-husky). They install on build.
+
+After cloning (or after changing `Cargo.toml` hook config):
+```bash
+cargo build  # generates/updates hooks in .git/hooks
+```
+
+Current configured hooks (from `Cargo.toml`):
+
+| Hook       | Command(s) |
+|------------|------------|
+| pre-commit | `cargo fmt --all -- --check` then `cargo clippy --all-targets --all-features -- -D warnings` |
+| pre-push   | `cargo test --all --quiet` |
+
+Note: The generated scripts may order clippy/fmt internally (husky may split combined lines). Both checks still run before the commit is accepted.
+
+### Skipping hooks
+Temporarily bypass (use sparingly):
+```bash
+HUSKY=0 git commit -m "wip"
+```
+
+### Modifying hooks
+Edit the section in `Cargo.toml`:
+```toml
+[package.metadata.husky]
+pre-commit = "cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings"
+pre-push = "cargo test --all --quiet"
+```
+Then rebuild:
+```bash
+cargo build
+```
+
+### Regenerating if stale
+If a hook didn’t update, a clean build forces regeneration:
+```bash
+cargo clean -p cargo-husky || true
+cargo build
+```
+
+### Disabling permanently (not recommended)
+Remove the `cargo-husky` dev-dependency and the `[package.metadata.husky]` section, then delete the hook scripts in `.git/hooks/`.

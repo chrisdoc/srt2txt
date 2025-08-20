@@ -4,9 +4,8 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Christoph Kieslich c.kieslich@gmail.com"]
 description = "Convert SRT subtitle files into clean plain text (strip timestamps, tags, merge lines)"
-repository = "https://github.com/your-user/srt2txt"
-homepage = "https://github.com/your-user/srt2txt"
-readme = "README.md"
+repository = "https://github.com/chrisdoc/srt2txt"
+homepage = "https://github.com/chrisdoc/srt2txt"
 keywords = ["subtitle", "srt", "transcript", "cli", "text"]
 categories = ["command-line-utilities", "text-processing"]
 rust-version = "1.70"
@@ -14,7 +13,7 @@ license-file = "LICENSE"
 exclude = ["srt/*", "target/*", ".github/*"]
 
 [badges]
-github-actions = { repository = "your-user/srt2txt", workflow = "CI" }
+github-actions = { repository = "chrisdoc/srt2txt", workflow = "CI" }
 
 [dependencies]
 clap = { version = "4.5.4", features = ["derive"] }
@@ -29,3 +28,9 @@ lazy_static = "1"
 assert_cmd = "2.0"
 predicates = "3.1"
 tempfile = "3.10"
+cargo-husky = { version = "1", default-features = false, features = ["precommit-hook", "prepush-hook", "run-cargo-fmt", "run-cargo-clippy"] }
+
+[package.metadata.husky]
+pre-commit = "cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings"
+pre-push = "cargo test --all --quiet"
+# You could add: pre-push = "cargo test --all --quiet"

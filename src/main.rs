@@ -47,22 +47,19 @@ struct Cli {
     join_sentences: bool,
 }
 
-#[derive(thiserror::Error, Debug)]
-enum SrtError {
-    #[error("Malformed timestamp line: {0}")]
-    BadTimestamp(String),
-}
-
 #[derive(Debug, Clone)]
 struct Caption {
+    // Keep timing fields optional for future features; suppress unused warnings explicitly.
+    #[allow(dead_code)]
     start_ms: u64,
+    #[allow(dead_code)]
     end_ms: u64,
     text: String,
 }
 
 fn parse_timestamp(ts: &str) -> Option<u64> {
     // format: HH:MM:SS,mmm
-    let mut parts = ts.split(|c| c == ':' || c == ',');
+    let mut parts = ts.split([':', ',']);
     let h: u64 = parts.next()?.parse().ok()?;
     let m: u64 = parts.next()?.parse().ok()?;
     let s: u64 = parts.next()?.parse().ok()?;
@@ -70,7 +67,7 @@ fn parse_timestamp(ts: &str) -> Option<u64> {
     if parts.next().is_some() {
         return None;
     }
-    Some(h * 3600_000 + m * 60_000 + s * 1000 + ms)
+    Some(h * 3_600_000 + m * 60_000 + s * 1_000 + ms)
 }
 
 fn parse_srt(path: &Path) -> Result<Vec<Caption>> {
@@ -161,8 +158,9 @@ fn post_process(texts: Vec<String>, collapse_blank: bool, dedup: bool) -> String
                 }
             }
         }
-        out.push(t.clone());
         last_line = Some(t);
+        // We can move `t` instead of cloning because we don't reuse it.
+        out.push(last_line.as_ref().unwrap().clone());
     }
     let joined = out.join("\n\n");
     if collapse_blank {
