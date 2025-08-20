@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use clap::{Parser, ArgAction};
+use clap::{ArgAction, Parser};
 use rayon::prelude::*;
 use regex::Regex;
 use walkdir::WalkDir;
@@ -54,7 +54,11 @@ enum SrtError {
 }
 
 #[derive(Debug, Clone)]
-struct Caption { start_ms: u64, end_ms: u64, text: String }
+struct Caption {
+    start_ms: u64,
+    end_ms: u64,
+    text: String,
+}
 
 fn parse_timestamp(ts: &str) -> Option<u64> {
     // format: HH:MM:SS,mmm
@@ -63,8 +67,10 @@ fn parse_timestamp(ts: &str) -> Option<u64> {
     let m: u64 = parts.next()?.parse().ok()?;
     let s: u64 = parts.next()?.parse().ok()?;
     let ms: u64 = parts.next()?.parse().ok()?;
-    if parts.next().is_some() { return None; }
-    Some(h*3600_000 + m*60_000 + s*1000 + ms)
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(h * 3600_000 + m * 60_000 + s * 1000 + ms)
 }
 
 fn parse_srt(path: &Path) -> Result<Vec<Caption>> {
@@ -75,24 +81,47 @@ fn parse_srt(path: &Path) -> Result<Vec<Caption>> {
     let mut lines = reader.lines().peekable();
     while let Some(line) = lines.next() {
         let line = line?;
-        if line.trim().is_empty() { continue; }
+        if line.trim().is_empty() {
+            continue;
+        }
         // sequence number (may ignore parse errors)
-        if line.trim().parse::<u32>().is_err() { continue; }
-        let ts_line = match lines.next() { Some(l)=>l?, None=>break };
-        if let Some((a,b)) = ts_line.split_once(" --> ") {
-            if let (Some(start), Some(end)) = (parse_timestamp(a.trim()), parse_timestamp(b.trim())) {
+        if line.trim().parse::<u32>().is_err() {
+            continue;
+        }
+        let ts_line = match lines.next() {
+            Some(l) => l?,
+            None => break,
+        };
+        if let Some((a, b)) = ts_line.split_once(" --> ") {
+            if let (Some(start), Some(end)) = (parse_timestamp(a.trim()), parse_timestamp(b.trim()))
+            {
                 // collect text lines until blank
                 let mut text_lines = Vec::new();
                 while let Some(peek) = lines.peek() {
-                    if peek.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) { break; }
+                    if peek.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) {
+                        break;
+                    }
                     let t = lines.next().unwrap()?; // safe unwrap
                     text_lines.push(t);
                 }
                 // consume blank
-                if let Some(peek) = lines.peek() { if peek.as_ref().ok().map(|s| s.trim().is_empty()).unwrap_or(false) { lines.next(); } }
+                if let Some(peek) = lines.peek() {
+                    if peek
+                        .as_ref()
+                        .ok()
+                        .map(|s| s.trim().is_empty())
+                        .unwrap_or(false)
+                    {
+                        lines.next();
+                    }
+                }
 
                 let text = clean_text(&text_lines.join("\n"));
-                captions.push(Caption { start_ms: start, end_ms: end, text });
+                captions.push(Caption {
+                    start_ms: start,
+                    end_ms: end,
+                    text,
+                });
             } else {
                 // malformed timestamp line, skip block
                 continue;
@@ -122,9 +151,15 @@ fn post_process(texts: Vec<String>, collapse_blank: bool, dedup: bool) -> String
     let mut out = Vec::new();
     let mut last_line: Option<String> = None;
     for t in texts.into_iter() {
-        if t.is_empty() { continue; }
+        if t.is_empty() {
+            continue;
+        }
         if dedup {
-            if let Some(ref last) = last_line { if last == &t { continue; } }
+            if let Some(ref last) = last_line {
+                if last == &t {
+                    continue;
+                }
+            }
         }
         out.push(t.clone());
         last_line = Some(t);
@@ -133,7 +168,9 @@ fn post_process(texts: Vec<String>, collapse_blank: bool, dedup: bool) -> String
     if collapse_blank {
         let re = Regex::new(r"\n{3,}").unwrap();
         re.replace_all(&joined, "\n\n").to_string()
-    } else { joined }
+    } else {
+        joined
+    }
 }
 
 fn process_file(path: &Path, cli: &Cli) -> Result<String> {
@@ -142,18 +179,26 @@ fn process_file(path: &Path, cli: &Cli) -> Result<String> {
     if cli.join_sentences {
         Ok(join_sentences(texts))
     } else {
-        Ok(post_process(texts, cli.collapse_blank, cli.remove_duplicates))
+        Ok(post_process(
+            texts,
+            cli.collapse_blank,
+            cli.remove_duplicates,
+        ))
     }
 }
 
 fn join_sentences(texts: Vec<String>) -> String {
     let mut out = String::new();
     for t in texts {
-        if t.is_empty() { continue; }
+        if t.is_empty() {
+            continue;
+        }
         if !out.is_empty() {
             let last = out.chars().rev().find(|c| !c.is_whitespace());
             if let Some(ch) = last {
-                if !ch.is_whitespace() { out.push(' '); }
+                if !ch.is_whitespace() {
+                    out.push(' ');
+                }
             }
         }
         out.push_str(t.trim());
@@ -162,12 +207,26 @@ fn join_sentences(texts: Vec<String>) -> String {
 }
 
 fn write_output(path: &Path, content: &str, cli: &Cli, base_input: &Path) -> Result<()> {
-    if cli.stdout { println!("{}", content); return Ok(()); }
-    let out_dir = if let Some(dir) = &cli.output_dir { dir.clone() } else { base_input.parent().unwrap_or(Path::new(".")).to_path_buf() };
-    if !out_dir.exists() { fs::create_dir_all(&out_dir)?; }
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("output");
+    if cli.stdout {
+        println!("{}", content);
+        return Ok(());
+    }
+    let out_dir = if let Some(dir) = &cli.output_dir {
+        dir.clone()
+    } else {
+        base_input.parent().unwrap_or(Path::new(".")).to_path_buf()
+    };
+    if !out_dir.exists() {
+        fs::create_dir_all(&out_dir)?;
+    }
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output");
     let out_path = out_dir.join(format!("{stem}.txt"));
-    if out_path.exists() && !cli.force { anyhow::bail!("Refusing to overwrite {:?} (use --force)", out_path); }
+    if out_path.exists() && !cli.force {
+        anyhow::bail!("Refusing to overwrite {:?} (use --force)", out_path);
+    }
     fs::write(&out_path, content)?;
     eprintln!("Wrote {:?}", out_path);
     Ok(())
@@ -177,12 +236,25 @@ fn gather_input_files(inputs: &[PathBuf]) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for input in inputs {
         if input.is_file() {
-            if input.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("srt")).unwrap_or(false) { files.push(input.clone()); }
+            if input
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case("srt"))
+                .unwrap_or(false)
+            {
+                files.push(input.clone());
+            }
         } else if input.is_dir() {
             for entry in WalkDir::new(input).into_iter().filter_map(Result::ok) {
                 if entry.file_type().is_file() {
                     let p = entry.path();
-                    if p.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("srt")).unwrap_or(false) { files.push(p.to_path_buf()); }
+                    if p.extension()
+                        .and_then(|e| e.to_str())
+                        .map(|e| e.eq_ignore_ascii_case("srt"))
+                        .unwrap_or(false)
+                    {
+                        files.push(p.to_path_buf());
+                    }
                 }
             }
         }
@@ -192,21 +264,42 @@ fn gather_input_files(inputs: &[PathBuf]) -> Vec<PathBuf> {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    if cli.inputs.is_empty() { anyhow::bail!("Provide at least one input file or directory"); }
-    if cli.stdout && cli.join { anyhow::bail!("--stdout and --join are mutually exclusive"); }
-    if cli.join_sentences && cli.join { anyhow::bail!("--join-sentences and --join cannot be combined"); }
-    if cli.join_sentences && cli.collapse_blank { eprintln!("Warning: --collapse-blank ignored with --join-sentences"); }
+    if cli.inputs.is_empty() {
+        anyhow::bail!("Provide at least one input file or directory");
+    }
+    if cli.stdout && cli.join {
+        anyhow::bail!("--stdout and --join are mutually exclusive");
+    }
+    if cli.join_sentences && cli.join {
+        anyhow::bail!("--join-sentences and --join cannot be combined");
+    }
+    if cli.join_sentences && cli.collapse_blank {
+        eprintln!("Warning: --collapse-blank ignored with --join-sentences");
+    }
 
     let files = gather_input_files(&cli.inputs);
-    if files.is_empty() { anyhow::bail!("No .srt files found"); }
+    if files.is_empty() {
+        anyhow::bail!("No .srt files found");
+    }
 
     if cli.join {
-        let contents: Vec<_> = files.par_iter().map(|f| process_file(f, &cli).with_context(|| format!("Processing {:?}", f))).collect::<Result<_>>()?;
-    let joined = if cli.join_sentences { join_sentences(contents) } else { post_process(contents, cli.collapse_blank, cli.remove_duplicates) };
+        let contents: Vec<_> = files
+            .par_iter()
+            .map(|f| process_file(f, &cli).with_context(|| format!("Processing {:?}", f)))
+            .collect::<Result<_>>()?;
+        let joined = if cli.join_sentences {
+            join_sentences(contents)
+        } else {
+            post_process(contents, cli.collapse_blank, cli.remove_duplicates)
+        };
         let out_dir = cli.output_dir.clone().unwrap_or_else(|| PathBuf::from("."));
-        if !out_dir.exists() { fs::create_dir_all(&out_dir)?; }
+        if !out_dir.exists() {
+            fs::create_dir_all(&out_dir)?;
+        }
         let out_path = out_dir.join(&cli.join_name);
-        if out_path.exists() && !cli.force { anyhow::bail!("Refusing to overwrite {:?} (use --force)", out_path); }
+        if out_path.exists() && !cli.force {
+            anyhow::bail!("Refusing to overwrite {:?} (use --force)", out_path);
+        }
         fs::write(&out_path, joined)?;
         eprintln!("Wrote {:?}", out_path);
         return Ok(());
@@ -223,8 +316,8 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
     use std::io::Write as _;
+    use tempfile::NamedTempFile;
 
     const SIMPLE_SRT: &str = "1\n00:00:00,000 --> 00:00:01,000\n<i>Hello</i> world!\n\n2\n00:00:01,500 --> 00:00:03,000\nSecond  line.\nLine continued.\n\n2\n00:00:04,000 --> 00:00:05,000\nSecond  line.\nLine continued.\n"; // duplicate block intentional
 
