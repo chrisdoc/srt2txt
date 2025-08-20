@@ -1,0 +1,31 @@
+[package]
+name = "srt2txt"
+version = "0.1.0"
+edition = "2021"
+authors = ["Christoph Kieslich c.kieslich@gmail.com"]
+description = "Convert SRT subtitle files into clean plain text (strip timestamps, tags, merge lines)"
+repository = "https://github.com/your-user/srt2txt"
+homepage = "https://github.com/your-user/srt2txt"
+readme = "README.md"
+keywords = ["subtitle", "srt", "transcript", "cli", "text"]
+categories = ["command-line-utilities", "text-processing"]
+rust-version = "1.70"
+license-file = "LICENSE"
+exclude = ["srt/*", "target/*", ".github/*"]
+
+[badges]
+github-actions = { repository = "your-user/srt2txt", workflow = "CI" }
+
+[dependencies]
+clap = { version = "4.5.4", features = ["derive"] }
+walkdir = "2.5"
+regex = "1"
+anyhow = "1"
+thiserror = "1"
+rayon = "1.10"
+lazy_static = "1"
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
+tempfile = "3.10"
