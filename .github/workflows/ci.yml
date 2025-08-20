@@ -7,21 +7,24 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+# Prevent overlapping runs on same ref (e.g., force-push) to save minutes
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
-jobs:
-  build-test:
-    name: Build & Test (stable)
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+env:
+  CARGO_TERM_COLOR: always
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -30,44 +33,120 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
-
-      - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy,rustfmt
-
-      - name: Verify formatting
+          components: rustfmt
+      - name: cargo fmt --check
         run: cargo fmt --all -- --check
 
-      - name: Clippy lint
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    needs: fmt
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: cargo clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+  test:
+    name: Tests (stable/beta/nightly)
+    runs-on: ubuntu-latest
+    needs: clippy
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [ stable, beta ]
+        include:
+          - toolchain: nightly
+            allow_failure: true
+    continue-on-error: ${{ matrix.allow_failure || false }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.toolchain }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.toolchain }}-
+            ${{ runner.os }}-cargo-
+      - name: Install ${{ matrix.toolchain }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
       - name: Build
         run: cargo build --locked --all-targets
-
-      - name: Run tests
+      - name: Tests
         run: cargo test --locked --all-features --no-fail-fast
 
-  minimal-msrv:
-    name: Compile (MSRV)
+  msrv:
+    name: MSRV Compile
+    if: github.event_name != 'pull_request' # skip on PRs for speed
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' # faster PRs
+    needs: clippy
     steps:
       - uses: actions/checkout@v4
-      - name: Install MSRV toolchain
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-msrv-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - name: Install MSRV
         uses: dtolnay/rust-toolchain@1.70.0
-      - name: Cargo build
+      - name: Cargo build (no default features)
         run: cargo build --locked --no-default-features
 
-  deny-audit:
+  audit:
     name: Security & License Audit
     runs-on: ubuntu-latest
+    needs: clippy
     steps:
       - uses: actions/checkout@v4
-      - name: Install tools
-        run: |
-          cargo install cargo-deny --locked || echo "cargo-deny already installed"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked || echo "cargo-deny already installed"
       - name: Generate lockfile (if missing)
         run: cargo generate-lockfile
-      - name: Run cargo deny (advisories, bans, licenses)
-        run: cargo deny check --hide-inclusion-graph || true # non-blocking for now
+      - name: cargo-deny (non-blocking)
+        run: cargo deny check --hide-inclusion-graph || true
+
+  summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    # Include all jobs so we can report their result even if some skipped
+    needs: [ fmt, clippy, test, msrv, audit ]
+    if: always()
+    steps:
+      - name: Outcome
+        run: |
+          echo "Fmt: ${{ needs.fmt.result }}"
+          echo "Clippy: ${{ needs.clippy.result }}"
+          echo "Tests: ${{ needs.test.result }}"
+          echo "MSRV: ${{ needs.msrv.result }}"
+          echo "Audit: ${{ needs.audit.result }}"
