@@ -8,7 +8,7 @@ repository = "https://github.com/chrisdoc/srt2txt"
 homepage = "https://github.com/chrisdoc/srt2txt"
 keywords = ["subtitle", "srt", "transcript", "cli", "text"]
 categories = ["command-line-utilities", "text-processing"]
-rust-version = "1.70"
+rust-version = "1.89.0"
 license-file = "LICENSE"
 exclude = ["srt/*", "target/*", ".github/*"]
 

@@ -85,7 +85,7 @@ jobs:
             ${{ runner.os }}-cargo-${{ matrix.toolchain }}-
             ${{ runner.os }}-cargo-
       - name: Install ${{ matrix.toolchain }}
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.toolchain }}
       - name: Build
@@ -110,7 +110,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
       - name: Install MSRV
-        uses: dtolnay/rust-toolchain@1.70.0
+        uses: dtolnay/rust-toolchain@stable
       - name: Cargo build (no default features)
         run: cargo build --locked --no-default-features
 
