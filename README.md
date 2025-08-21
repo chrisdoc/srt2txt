@@ -1,87 +1,125 @@
 # srt2txt
 
-Convert SRT subtitle files into clean plain text.
+Convert SRT subtitle files into clean plain text. Fast & parallel with safe defaults and composable post‑processing.
 
 ## Features
-- Removes numbering & timestamps
-- Strips simple HTML tags (<i>, <b>, etc.)
-- Joins multi-line captions into single lines
-- Optionally joins multiple files into one output
-- Parallel processing of many files
-- Optional duplicate removal and blank line collapsing
-- Optionally join all captions into continuous sentences (`--join-sentences`)
+* Removes numbering & timestamps
+* Strips simple HTML tags (`<i>`, `<b>`, etc.)
+* Joins multi‑line caption blocks into single logical lines
+* Join multiple files into one (`--join`) OR flatten all captions into one sentence stream (`--join-sentences`)
+* Parallel file processing via Rayon
+* Optional immediate duplicate removal & blank line collapsing
+* Refuses overwrites unless `--force`
 
 ## Install
 ```bash
-cargo install --path .
+cargo install srt2txt
 ```
 
-## Usage
+## Quick Start
 ```bash
+# Basic conversion (creates input.txt next to input.srt)
 srt2txt input.srt
+
+# Convert a directory tree recursively → outputs into cleaned/
 srt2txt subtitles/ --output-dir cleaned/
-srt2txt a.srt b.srt --join --join-name all.txt
+
+# Join several files into combined.txt (default name)
+srt2txt a.srt b.srt --join
+
+# Custom join filename
+srt2txt a.srt b.srt --join --join-name all_dialogue.txt
+
+# Stream per‑file results to stdout (no files written)
 srt2txt movie.srt --stdout
+
+# Single continuous text block (no blank separators)
 srt2txt movie.srt --join-sentences --stdout
 ```
 
-Flags:
+## Sample Input / Output
+Input (`sample.srt`):
 ```
---stdout              Print combined output of all inputs to stdout
---join                Join all processed captions into a single output file
---join-name <NAME>    Output file name when using --join (default: combined.txt)
---join-sentences      Output a single continuous text block (no blank lines)
---collapse-blank      Collapse multiple blank lines into one
---remove-duplicates   Remove immediately repeated lines
--f, --force           Overwrite existing output files
--o, --output-dir DIR  Output directory (created if missing)
+1
+00:00:00,000 --> 00:00:01,000
+<i>Hello</i>  world!
+
+2
+00:00:01,500 --> 00:00:03,000
+Second  line.
+Line continued.
+```
+Output (`sample.txt`):
+```
+Hello world!
+
+Second line. Line continued.
 ```
 
-## License
-MIT
+## Flags
+```
+--stdout              Print combined per-file outputs to stdout (disables file writes)
+--join                Aggregate all processed files into a single output (excludes --stdout, --join-sentences)
+--join-name <NAME>    Filename for --join output (default: combined.txt)
+--join-sentences      Flatten all captions into one continuous block (ignores --collapse-blank; conflicts with --join)
+--collapse-blank      Collapse ≥3 consecutive newlines to a single blank line
+--remove-duplicates   Remove immediately repeated normalized lines
+-f, --force           Overwrite existing output files
+-o, --output-dir DIR  Directory for outputs (created if missing)
+```
+
+### Flag Interaction Matrix
+| Combination | Allowed | Notes |
+|-------------|---------|-------|
+| `--stdout` + `--join` | ❌ | Mutually exclusive |
+| `--join` + `--join-sentences` | ❌ | Different aggregation semantics |
+| `--join-sentences` + `--collapse-blank` | ⚠️ | Runs; blank collapse skipped (warning emitted) |
+| Existing output & no `--force` | ❌ | Aborts to prevent overwrite |
+
+## Edge Cases & Behavior
+* Duplicate sequence numbers: accepted if timestamps parse.
+* Malformed timestamp lines: block skipped (robust > strict).
+* Non-`.srt` files ignored; directories walked recursively.
+* HTML stripping is naive (`<[^>]+>`): removes any simple tag.
+* Dedup removes only immediately consecutive identical cleaned lines.
+
+## Performance Notes
+* File-level parallelism only (predictable memory & ordering).
+* Regex patterns compiled once via `lazy_static`.
+* Per-file processing builds a vector of cleaned caption strings; large joined output materialized only at final aggregation.
 
 ## Development
-### Git Hooks
-Git hooks are managed automatically by [cargo-husky](https://crates.io/crates/cargo-husky). They install on build.
+Core logic resides in `src/main.rs` (parsing, cleaning, post-process, CLI validation).
 
-After cloning (or after changing `Cargo.toml` hook config):
+Build & test locally:
 ```bash
-cargo build  # generates/updates hooks in .git/hooks
+cargo build
+cargo test --all --quiet
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-Current configured hooks (from `Cargo.toml`):
+### Git Hooks (cargo-husky)
+Installed/updated on `cargo build` according to `Cargo.toml`:
 
-| Hook       | Command(s) |
-|------------|------------|
+| Hook | Command(s) |
+|------|-----------|
 | pre-commit | `cargo fmt --all -- --check` then `cargo clippy --all-targets --all-features -- -D warnings` |
-| pre-push   | `cargo test --all --quiet` |
+| pre-push | `cargo test --all --quiet` |
 
-Note: The generated scripts may order clippy/fmt internally (husky may split combined lines). Both checks still run before the commit is accepted.
-
-### Skipping hooks
-Temporarily bypass (use sparingly):
+Skip temporarily:
 ```bash
 HUSKY=0 git commit -m "wip"
 ```
 
-### Modifying hooks
-Edit the section in `Cargo.toml`:
-```toml
-[package.metadata.husky]
-pre-commit = "cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings"
-pre-push = "cargo test --all --quiet"
-```
-Then rebuild:
-```bash
-cargo build
-```
-
-### Regenerating if stale
-If a hook didn’t update, a clean build forces regeneration:
+Force regenerate if stale:
 ```bash
 cargo clean -p cargo-husky || true
 cargo build
 ```
 
-### Disabling permanently (not recommended)
-Remove the `cargo-husky` dev-dependency and the `[package.metadata.husky]` section, then delete the hook scripts in `.git/hooks/`.
+## Contributing
+Keep features lean. Add unit tests beside changed logic (see existing tests in `src/main.rs`). Maintain flag validation in `main`. When modularizing, prefer pure helpers (e.g. `parser.rs`, `transform.rs`) while preserving existing behavior.
+
+## License
+MIT
